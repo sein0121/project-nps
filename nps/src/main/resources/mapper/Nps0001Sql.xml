@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+  PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="Nps0001Sql">
+    <select id="selectReqIdCnt" parameterType="string" resultType="int">
+        SELECT COUNT(*) FROM NPS0001 WHERE REQUEST_ID = #{requestId}
+    </select>
+
+    <insert id ="insertReq">
+      <![CDATA[
+        INSERT INTO NPS0001(
+                           REQUEST_ID, CALLBACK_URL,FORMAT, PRO_STATUS, PRO_MSG, REQ_DT, RES_DT, REG_DT
+        )
+        VALUES (
+                 #{requestId}
+               , #{callbackUrl}
+               , #{format}
+               , #{proStatus}
+               , #{proMsg}
+               , #{reqDt}
+               , #{resDt}
+               , #{regDt}
+               )
+        ]]>
+    </insert>
+</mapper>
