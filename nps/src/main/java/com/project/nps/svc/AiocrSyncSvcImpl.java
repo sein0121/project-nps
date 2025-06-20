@@ -3,6 +3,7 @@ package com.project.nps.svc;
 import com.project.nps.config.WebClientUtil;
 import com.project.nps.dto.Nps0001Dto;
 
+import com.project.nps.dto.Nps0002Dto;
 import com.project.nps.dto.NpsHistoryDto;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.File;
@@ -39,6 +40,9 @@ public class AiocrSyncSvcImpl implements AiocrSyncSvc {
     @Value("${twinreader.callback-url}")
     private String callbackUrl;
 
+    @Value("${twinreader.callback-status}")
+    private String callbackStatus;
+
     @Value("${twinreader.analysis.pipeline.name}")
     private String pipelineName;
 
@@ -50,6 +54,15 @@ public class AiocrSyncSvcImpl implements AiocrSyncSvc {
 
     @Value("${twinreader.api.inference}")
     private String inferenceApi;
+
+    @Value("${twinreader.api.category}")
+    private String apiCategory;
+
+    @Value("${aipct.pension.thread.timeout}")
+    private int threadTimeout;
+
+    @Value("${aipct.pension.thread.sleep}")
+    private int threadSleep;
 
   @Autowired
   private WebClientUtil webClientUtil;
@@ -135,12 +148,13 @@ public class AiocrSyncSvcImpl implements AiocrSyncSvc {
             analysisArr.add("/"+requestId+"/");
             analysisObj.put("pathList", analysisArr);
             analysisObj.put("requestID", requestId);
-            analysisObj.put("callbackUrl", "http://"+serverIp+":"+serverPort+callbackUrl);
+//            analysisObj.put("callbackUrl", "");
+//            analysisObj.put("callbackUrl", "http://"+serverIp+":"+serverPort+callbackUrl);
+            analysisObj.put("callbackUrl", "http://"+serverIp+":"+serverPort+callbackStatus);
             analysisObj.put("pipelineName", pipelineName);
             analysisObj.put("clsfGroupID", groupID);
 
-            logger.info("🍙🍙🍙 {}",analysisObj);
-            logger.info("🍩🍩🍩 {}", twrdUrl+inferenceApi);
+//            logger.info("🍙🍙🍙 {}",analysisObj);
             JSONObject loadAnalysis = webClientUtil.post(
                 twrdUrl+inferenceApi,
                 analysisObj,
@@ -154,5 +168,98 @@ public class AiocrSyncSvcImpl implements AiocrSyncSvc {
         }
 
 
+    }
+
+    //분석 완료 후 prostatus 값 변경
+    public void setProStatus(String requestId, JSONObject reqBody, HttpServletRequest request) throws Exception {
+
+        LocalDateTime now = LocalDateTime.now();
+        String formatNow = now.format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+
+        //1. 0001,002 set
+        logger.info("7. ProStatus DB 001, 002 PARAN SET");
+         Nps0001Dto nps0001Dto = new Nps0001Dto();
+        nps0001Dto.setRequestId(requestId);
+        nps0001Dto.setProStatus("analysis");
+        nps0001Dto.setResDt(formatNow);
+
+        Nps0002Dto nps0002Dto = new Nps0002Dto();
+        nps0002Dto.setRequestId(requestId);
+
+        try {
+            // 2. DB NPSPEN0001 PRO_STATUS UPDATE
+            logger.info("7-1. DB 0001 PRO_STATUS UPDATE");
+            sqlSessionTemplate.update("Nps0001Sql.updateProStatus", nps0001Dto);
+        } catch(Exception error) {
+            logger.error("##### PRO_STATUS UPDATE FAILED " + error.getMessage());
+            logger.error(nps0001Dto.toString());
+            throw new Exception("PRO_STATUS UPDATE FAILED");
+        }
+    }
+
+    //분석 완료 후 prostatus 값 가져오기
+    public void getProStatus(String requestId) throws Exception {
+
+        LocalDateTime now = LocalDateTime.now();
+        String formatNow = now.format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+
+//        1. DB 0001 Param SET
+        Nps0001Dto nps0001Dto = new Nps0001Dto();
+        nps0001Dto.setRequestId(requestId);
+
+        int idx =1;
+        String proStatus = "";
+
+        //2. DB 0002 ProStatus 조회 (10초에 한번, 2분동안)
+        while (!"analysis".equals(proStatus) && idx<=threadTimeout) {
+            logger.info("7-2. DB NPS0001 PRO_STATUS 조회 "+idx);
+            Thread.sleep(threadSleep);
+            proStatus = sqlSessionTemplate.selectOne("Nps0001Sql.selectProStatus", nps0001Dto);
+            idx++;
+        }
+        if(!"analysis".equals(proStatus)) throw new Exception("PRO_STATUS UPDATE FAILED");
+    }
+
+    //분석완료 후 결과 가공
+    public JSONArray getOcrResult(String requestId, HttpServletRequest request) throws Exception {
+        //현재 시간
+        LocalDateTime now = LocalDateTime.now();
+        String formatNow = now.format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+
+        JSONArray ocrResult = new JSONArray();
+
+        logger.info("8. 분류 조회 - DB 001, 002 PARAN GET");
+        Nps0001Dto nps0001Dto = new Nps0001Dto();
+        nps0001Dto.setRequestId(requestId);
+        nps0001Dto.setProStatus("finish");
+        nps0001Dto.setResDt(formatNow);
+
+        Nps0002Dto nps0002Dto = new Nps0002Dto();
+        nps0002Dto.setRequestId(requestId);
+        nps0002Dto.setRegDt(formatNow);
+
+//       문서 분류결과 조회
+        logger.info("8-1. 문서 분류 결과 조회");
+        JSONArray analysisArr = new JSONArray();
+        try{
+            JSONObject analysisObj = new JSONObject();
+            JSONArray jsonArr = new JSONArray();
+            jsonArr.add("/"+requestId+"/");
+            analysisObj.put("images", jsonArr);
+
+            analysisArr = webClientUtil.postJson(
+                twrdUrl + apiCategory,
+                analysisObj,
+                JSONArray.class
+            );
+
+        }catch(Exception error) {
+            logger.error(" ##### Twinreader ANALYSIS RESULT SEARCH FAILED " + error.getMessage());
+            throw new Exception("Twinreader ANALYSIS RESULT SEARCH FAILED");
+        }
+        logger.info("Category 🍙🍙🍙🍙 {}", analysisArr);
+
+
+        return ocrResult;
     }
 }

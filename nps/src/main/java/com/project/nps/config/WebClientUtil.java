@@ -54,4 +54,23 @@ public class WebClientUtil {
       throw new RuntimeException("WebClient POST error: " + e.getMessage(), e);
     }
   }
+
+  public <T> T postJson(String url, org.json.simple.JSONObject jsonObject, Class<T> responseType) {
+    try {
+
+      return webClient.post()
+          .uri(url)
+          .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+          .header("Accept", MediaType.APPLICATION_JSON_VALUE)
+          .body(BodyInserters.fromValue(jsonObject.toJSONString()))
+          .retrieve()
+          .bodyToMono(responseType)
+          .block();
+
+    } catch (Exception e) {
+      logger.error("WebClient POST error: {}", e.getMessage());
+      throw new RuntimeException("WebClient POST error: " + e.getMessage(), e);
+    }
+  }
+
 }

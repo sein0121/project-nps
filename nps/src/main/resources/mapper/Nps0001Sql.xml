@@ -25,4 +25,16 @@
                )
         ]]>
     </insert>
+
+    <update id="updateProStatus">
+      UPDATE NPS0001
+      SET RES_DT = #{resDt}
+        , PRO_STATUS = #{proStatus}
+      WHERE REQUEST_ID = #{requestId}
+    </update>
+
+    <select id="selectProStatus" resultType="String">
+        SELECT PRO_STATUS FROM NPS0001
+        WHERE REQUEST_ID = #{requestId}
+  </select>
 </mapper>
