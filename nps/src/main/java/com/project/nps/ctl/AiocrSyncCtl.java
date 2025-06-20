@@ -52,13 +52,25 @@ public class AiocrSyncCtl {
             // 4. 항목 추출 결과 OUTPUT 경로에서 가져와 수정
             JSONArray ocrResult = aiocrSyncSvc.getOcrResult(requestId,request);
 
+            result.put("rsp_code", HttpStatus.OK);
+            result.put("rsp_msg", "success");
+            result.put("result", ocrResult);
         }catch (Exception e){
             Logger.error("##### aiocrSyncLoad error : " + e.getMessage());
             result.put("rsp_code", HttpStatus.BAD_REQUEST);
             result.put("rsp_msg", e.getMessage());
         }
 
-        Logger.info("##### aiocrSyncLoad END #####" + result);
+//        서버에 저장된 파일 삭제 (Input, Output)
+        try{
+            if("true".equals(deleteYn)){
+                aiocrSyncSvc.deleteDir(requestId);
+            }
+        }catch (Exception e){
+            Logger.error("##### INPUT, OUTPUT DIRECTORY FAILED : " + e.getMessage());
+        }
+
+        Logger.info("##### aiocrSyncLoad END #####" );
         return result;
 
     }
@@ -76,15 +88,13 @@ public class AiocrSyncCtl {
 
         try {
             // 1. DB NPSPEN0001 PRO_STATUS UPDATE (analysis)
-            Logger.info("##### reqBody : " + reqBody);
-//            Nps0001Dto nps0001Dto = new Nps0001Dto();
-//            Logger.info("🔍 update 직전 row 존재 여부 확인: {}", sqlSessionTemplate.selectOne("Nps0001Sql.selectProStatus", nps0001Dto));
+//            Logger.info("##### reqBody : " + reqBody);
             aiocrSyncSvc.setProStatus(requestId, reqBody, request);
         } catch(Exception error) {
             Logger.error("##### setProStatus error : " + error.getMessage());
         }
 
-        Logger.info("##### setProStatus END #####");
+//        Logger.info("##### setProStatus END #####");
     }
 
 //    @PostMapping("/getOcrResult")

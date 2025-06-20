@@ -6,12 +6,19 @@ import com.project.nps.dto.Nps0001Dto;
 import com.project.nps.dto.Nps0002Dto;
 import com.project.nps.dto.NpsHistoryDto;
 import jakarta.servlet.http.HttpServletRequest;
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.Iterator;
+import org.apache.tomcat.util.http.fileupload.FileUtils;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +37,9 @@ public class AiocrSyncSvcImpl implements AiocrSyncSvc {
 
     @Value("${twinreader.input.path}")
     private String inputPath;
+
+    @Value("${twinreader.output.path}")
+    private String outputPath;
 
     @Value("${server.ip}")
     private String serverIp;
@@ -177,7 +187,7 @@ public class AiocrSyncSvcImpl implements AiocrSyncSvc {
         String formatNow = now.format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
 
         //1. 0001,002 set
-        logger.info("7. ProStatus DB 001, 002 PARAN SET");
+        logger.info("1-1. ProStatus DB 001, 002 PARAN SET");
          Nps0001Dto nps0001Dto = new Nps0001Dto();
         nps0001Dto.setRequestId(requestId);
         nps0001Dto.setProStatus("analysis");
@@ -188,7 +198,7 @@ public class AiocrSyncSvcImpl implements AiocrSyncSvc {
 
         try {
             // 2. DB NPSPEN0001 PRO_STATUS UPDATE
-            logger.info("7-1. DB 0001 PRO_STATUS UPDATE");
+            logger.info("1. DB 0001 PRO_STATUS UPDATE");
             sqlSessionTemplate.update("Nps0001Sql.updateProStatus", nps0001Dto);
         } catch(Exception error) {
             logger.error("##### PRO_STATUS UPDATE FAILED " + error.getMessage());
@@ -212,7 +222,7 @@ public class AiocrSyncSvcImpl implements AiocrSyncSvc {
 
         //2. DB 0002 ProStatus 조회 (10초에 한번, 2분동안)
         while (!"analysis".equals(proStatus) && idx<=threadTimeout) {
-            logger.info("7-2. DB NPS0001 PRO_STATUS 조회 "+idx);
+            logger.info("0. DB NPS0001 PRO_STATUS 조회 "+idx);
             Thread.sleep(threadSleep);
             proStatus = sqlSessionTemplate.selectOne("Nps0001Sql.selectProStatus", nps0001Dto);
             idx++;
@@ -228,7 +238,7 @@ public class AiocrSyncSvcImpl implements AiocrSyncSvc {
 
         JSONArray ocrResult = new JSONArray();
 
-        logger.info("8. 분류 조회 - DB 001, 002 PARAN GET");
+        logger.info("2. 분류 조회 - DB 001, 002 PARAN GET");
         Nps0001Dto nps0001Dto = new Nps0001Dto();
         nps0001Dto.setRequestId(requestId);
         nps0001Dto.setProStatus("finish");
@@ -239,7 +249,7 @@ public class AiocrSyncSvcImpl implements AiocrSyncSvc {
         nps0002Dto.setRegDt(formatNow);
 
 //       문서 분류결과 조회
-        logger.info("8-1. 문서 분류 결과 조회");
+        logger.info("2-1. 문서 분류 결과 조회");
         JSONArray analysisArr = new JSONArray();
         try{
             JSONObject analysisObj = new JSONObject();
@@ -257,9 +267,127 @@ public class AiocrSyncSvcImpl implements AiocrSyncSvc {
             logger.error(" ##### Twinreader ANALYSIS RESULT SEARCH FAILED " + error.getMessage());
             throw new Exception("Twinreader ANALYSIS RESULT SEARCH FAILED");
         }
-        logger.info("Category 🍙🍙🍙🍙 {}", analysisArr);
 
+//        format 에 맞는 값 가져오기
+        logger.info("3. 요청에 대한 DB 값 가져오기 (FORMAT)");
+        HashMap<String, Object> selectReqInfo = sqlSessionTemplate.selectOne("Nps0001Sql.selectReqInfo", nps0001Dto);
+        String format = (String) selectReqInfo.get("FORMAT");
 
+        for(int i=0; i< analysisArr.size(); i++){
+            HashMap<String, Object> analyObj = (HashMap<String, Object>) analysisArr.get(i);
+            JSONObject ocrObj = new JSONObject();
+
+            Boolean success = (Boolean) analyObj.get("success");
+            int pageNumber = Integer.parseInt((String) analyObj.get("pageNumber"));
+
+            String imagePath = (String) analyObj.get("path");
+            String imageName = imagePath.replace("/"+requestId+"/","");
+            String tmpPath = imagePath.substring(0, imagePath.lastIndexOf(".")) + "_" + imagePath.substring(imagePath.lastIndexOf(".")+1);
+
+            String filePath     =  outputPath + tmpPath + tmpPath.replace(requestId, "extractionResult") + "_extract_result.json";
+
+            nps0002Dto.setFileNm(imageName);
+            nps0002Dto.setPageNum(pageNumber);
+            nps0002Dto.setCategory((String) analyObj.get("category"));
+            nps0002Dto.setProStatus(success ? "success" : "fail");
+            nps0002Dto.setProMsg((String) analyObj.get("message"));
+
+            if(success){
+                try{
+                    if(pageNumber<2){
+                        logger.info("5. 추출결과 outptut 에서 가져오기");
+                        File readFile = new File(filePath);
+                        if(readFile.getParentFile().exists()){
+                            BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(readFile)));
+                            String strJson = br.readLine();
+                            JSONParser par = new JSONParser();
+                            JSONObject jsonObj = (JSONObject) par.parse(strJson);
+
+                            JSONObject tmpObj = new JSONObject();
+
+                            Iterator pages = jsonObj.keySet().iterator();
+                            while (pages.hasNext()){
+                                String pageNum = pages.next().toString();
+                                JSONObject pageObj = (JSONObject) jsonObj.get(pageNum);
+                                JSONObject metaData = (JSONObject) pageObj.get("metaData");
+
+                                logger.info("4. DB 002 UPDARE & INSERT");
+                                pageNumber = Integer.parseInt(pageNum.replace("Page",""));
+                                nps0002Dto.setPageNum(pageNumber);
+                                nps0002Dto.setCategory((String) metaData.get("classification"));
+
+                                if(pageNumber>1){
+                                    sqlSessionTemplate.insert("Nps0002Sql.insert0002", nps0002Dto);
+                                }else{
+                                    sqlSessionTemplate.update("Nps0002Sql.updateNps0002", nps0002Dto);
+                                }
+
+                                logger.info("5-1. 페이지별 카테고리 정보 추가");
+                                pageObj.put("category", metaData.get("classification"));
+
+                                logger.info("5-2. 추출결과 구조 변경(불필요한 데이터 삭제)");
+                                pageObj.remove("metaData");
+                                pageObj.remove("version");
+                                pageObj.remove("requestMetaData");
+                                if("simple".equals(format)) pageObj.remove("values");
+
+                                tmpObj.put(pageNum, pageObj);
+                            }
+                            ocrObj.put("fileNm", imageName);
+                            ocrObj.put("fileResult", tmpObj);
+                            ocrResult.add(ocrObj);
+                        }else {
+                            // 8. DB NPSPEN0002 UPDATE
+                            nps0002Dto.setPageNum(0);
+                            nps0002Dto.setCategory("분류실패");
+                            nps0002Dto.setProStatus("failed");
+                            nps0002Dto.setProMsg(null);
+                            sqlSessionTemplate.update("Nps0002Sql.updateNps0002", nps0002Dto);
+
+                            ocrObj.put("fileNm", imageName);
+                            ocrObj.put("fileResult", new JSONObject());
+                            ocrResult.add(ocrObj);
+                        }
+                    }
+                }catch(Exception error) {
+                    logger.error("##### SUCCESS RESULT PROCESS FAILED " + error.getMessage());
+                    throw new Exception("SUCCESS RESULT PROCESS FAILED");
+                }
+            }else {
+                logger.info("4-2. 분석 실패한 경우");
+                try {
+                    sqlSessionTemplate.update("Nps0002Sql.updateNps0002", nps0002Dto);
+
+                    ocrObj.put("fileNm", imageName);
+                    ocrObj.put("fileResult", new JSONObject());
+                    ocrResult.add(ocrObj);
+                } catch(Exception error) {
+                    logger.error("##### FAILED RESULT PROCESS FAILED " + error.getMessage());
+                    throw new Exception("FAILED RESULT PROCESS FAILED");
+                }
+            }
+        }
         return ocrResult;
+    }
+
+    public void deleteDir(String requestId) throws Exception {
+        logger.info("##### deleteDirectory START #####" + requestId);
+
+        try{
+            File inputDir = new File(inputPath+"/"+requestId+"/");
+            if(inputDir.exists()){
+                FileUtils.cleanDirectory(inputDir);
+                inputDir.delete();
+            }
+
+            File outputDir = new File(outputPath+"/"+requestId+"/");
+            if(outputDir.exists()){
+                FileUtils.cleanDirectory(outputDir);
+                outputDir.delete();
+            }
+        }catch(Exception error) {
+            logger.error("##### INPUT, OUTPUT DIRECTORY FAILED " + error.getMessage());
+        }
+        logger.info("##### deleteDirectory END #####");
     }
 }

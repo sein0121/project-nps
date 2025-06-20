@@ -16,4 +16,17 @@
                , #{regDt}
                )
     </insert>
+
+  <update id="updateNps0002">
+    <![CDATA[
+    UPDATE NPS0002
+    SET PAGE_NUM = #{pageNum}
+      , CATEGORY = #{category}
+      , PRO_STATUS = #{proStatus}
+      , PRO_MSG = #{proMsg}
+    WHERE REQUEST_ID = #{requestId}
+      AND FILE_NM = #{fileNm}
+      AND PAGE_NUM = 0
+    ]]>
+  </update>
 </mapper>

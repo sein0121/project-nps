@@ -36,5 +36,14 @@
     <select id="selectProStatus" resultType="String">
         SELECT PRO_STATUS FROM NPS0001
         WHERE REQUEST_ID = #{requestId}
+    </select>
+
+  <select id="selectReqInfo" resultType="java.util.HashMap">
+    SELECT
+      CALLBACK_URL
+         , FORMAT
+    FROM NPS0001
+    WHERE REQUEST_ID = #{requestId}
   </select>
+
 </mapper>
